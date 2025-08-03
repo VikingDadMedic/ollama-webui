@@ -1,0 +1,44 @@
+version: '3.8'
+
+services:
+  ollama:
+    image: ollama/ollama:latest
+    volumes:
+      - ollama_data:/root/.ollama
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11434/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  truth-mirror:
+    build:
+      context: .
+      dockerfile: Dockerfile.cpu
+      args:
+        BUILD_HASH: ${BUILD_HASH:-git-build}
+    ports:
+      - "3000:8080"
+    volumes:
+      - webui_data:/app/backend/data
+    environment:
+      - OLLAMA_BASE_URL=http://ollama:11434
+      - WEBUI_SECRET_KEY=your-secret-key-here  # Change this!
+      - ENV=prod
+      # CPU optimizations for your VM
+      - TORCH_NUM_THREADS=4
+      - OMP_NUM_THREADS=4
+      - MKL_NUM_THREADS=4
+    depends_on:
+      - ollama
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+volumes:
+  ollama_data:
+  webui_data:

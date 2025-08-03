@@ -1,0 +1,135 @@
+# syntax=docker/dockerfile:1
+# CPU-optimized Dockerfile for VM deployment
+
+# Build args
+ARG USE_CUDA=false
+ARG USE_OLLAMA=true
+ARG USE_EMBEDDING_MODEL=sentence-transformers/all-MiniLM-L6-v2
+ARG USE_RERANKING_MODEL=""
+ARG BUILD_HASH=cpu-build
+ARG UID=1000
+ARG GID=1000
+
+######## WebUI frontend ########
+FROM --platform=linux/amd64 node:22-alpine3.20 AS build
+ARG BUILD_HASH
+
+WORKDIR /app
+
+# Install git for build info
+RUN apk add --no-cache git
+
+COPY package.json package-lock.json ./
+RUN npm ci --force
+
+COPY . .
+ENV APP_BUILD_HASH=${BUILD_HASH}
+RUN npm run build
+
+######## WebUI backend ########
+FROM python:3.11-slim-bookworm AS base
+
+# Use args
+ARG USE_CUDA
+ARG USE_OLLAMA
+ARG USE_EMBEDDING_MODEL
+ARG USE_RERANKING_MODEL
+ARG UID
+ARG GID
+
+## Environment setup ##
+ENV ENV=prod \
+    PORT=8080 \
+    USE_OLLAMA_DOCKER=${USE_OLLAMA} \
+    USE_CUDA_DOCKER=${USE_CUDA} \
+    USE_EMBEDDING_MODEL_DOCKER=${USE_EMBEDDING_MODEL} \
+    USE_RERANKING_MODEL_DOCKER=${USE_RERANKING_MODEL} \
+    # CPU optimization
+    OMP_NUM_THREADS=4 \
+    MKL_NUM_THREADS=4 \
+    NUMEXPR_NUM_THREADS=4 \
+    VECLIB_MAXIMUM_THREADS=4 \
+    OPENBLAS_NUM_THREADS=4
+
+## URLs ##
+ENV OLLAMA_BASE_URL="/ollama" \
+    OPENAI_API_BASE_URL=""
+
+## Security ##
+ENV OPENAI_API_KEY="" \
+    WEBUI_SECRET_KEY="" \
+    SCARF_NO_ANALYTICS=true \
+    DO_NOT_TRACK=true \
+    ANONYMIZED_TELEMETRY=false
+
+## Model paths ##
+ENV WHISPER_MODEL="base" \
+    WHISPER_MODEL_DIR="/app/backend/data/cache/whisper/models" \
+    RAG_EMBEDDING_MODEL="$USE_EMBEDDING_MODEL_DOCKER" \
+    RAG_RERANKING_MODEL="$USE_RERANKING_MODEL_DOCKER" \
+    SENTENCE_TRANSFORMERS_HOME="/app/backend/data/cache/embedding/models" \
+    TIKTOKEN_ENCODING_NAME="cl100k_base" \
+    TIKTOKEN_CACHE_DIR="/app/backend/data/cache/tiktoken" \
+    HF_HOME="/app/backend/data/cache/embedding/models"
+
+WORKDIR /app/backend
+
+# Create non-root user
+RUN groupadd -g $GID app && \
+    useradd -u $UID -g $GID -d /home/app -s /bin/bash -m app
+
+# Install system dependencies
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+    git build-essential pandoc netcat-openbsd curl jq \
+    gcc python3-dev \
+    ffmpeg libsm6 libxext6 \
+    # CPU optimizations
+    libgomp1 libopenblas-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Ollama if enabled
+RUN if [ "$USE_OLLAMA" = "true" ]; then \
+    curl -fsSL https://ollama.com/install.sh | sh; \
+    fi
+
+# Install Python dependencies
+COPY --chown=$UID:$GID ./backend/requirements.txt ./requirements.txt
+
+RUN pip3 install --no-cache-dir uv && \
+    # Install CPU-optimized PyTorch
+    pip3 install torch==2.5.1 torchvision==0.20.1 torchaudio==2.5.1 --index-url https://download.pytorch.org/whl/cpu --no-cache-dir && \
+    # Install other requirements
+    uv pip install --system -r requirements.txt --no-cache-dir && \
+    # Pre-download models
+    python -c "import os; from sentence_transformers import SentenceTransformer; SentenceTransformer(os.environ['RAG_EMBEDDING_MODEL'], device='cpu')" && \
+    python -c "import os; from faster_whisper import WhisperModel; WhisperModel(os.environ['WHISPER_MODEL'], device='cpu', compute_type='int8', download_root=os.environ['WHISPER_MODEL_DIR'])" && \
+    python -c "import os; import tiktoken; tiktoken.get_encoding(os.environ['TIKTOKEN_ENCODING_NAME'])" && \
+    # Set permissions
+    chown -R $UID:$GID /app/backend/data/
+
+# Copy frontend build
+COPY --chown=$UID:$GID --from=build /app/build /app/build
+COPY --chown=$UID:$GID --from=build /app/CHANGELOG.md /app/CHANGELOG.md
+COPY --chown=$UID:$GID --from=build /app/package.json /app/package.json
+
+# Copy backend
+COPY --chown=$UID:$GID ./backend .
+
+# Setup Chrome telemetry opt-out
+RUN mkdir -p /home/app/.cache/chroma && \
+    echo -n 00000000-0000-0000-0000-000000000000 > /home/app/.cache/chroma/telemetry_user_id && \
+    chown -R $UID:$GID /home/app
+
+EXPOSE 8080
+
+HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
+    CMD curl --silent --fail http://localhost:${PORT:-8080}/health | jq -ne 'input.status == true' || exit 1
+
+USER $UID:$GID
+
+ARG BUILD_HASH
+ENV WEBUI_BUILD_VERSION=${BUILD_HASH}
+ENV DOCKER=true
+
+CMD ["bash", "start.sh"]
