@@ -1,0 +1,10 @@
+---
+title: Create & Edit Images
+source: category/create--edit-images/index.html
+word_count: 233
+code_blocks: 0
+quality_score: 70.0
+extracted: 2025-12-14T09:48:29.827576
+---
+
+## [📄️ AUTOMATIC1111This tutorial is a community contribution and is not supported by the Open WebUI team. It serves only as a demonstration on how to customize Open WebUI for your specific use case. Want to contribute? Check out the contributing tutorial.](</features/image-generation-and-editing/automatic1111>)## [📄️ ComfyUIThis tutorial is a community contribution and is not supported by the Open WebUI team. It serves only as a demonstration on how to customize Open WebUI for your specific use case. Want to contribute? Check out the contributing tutorial.](</features/image-generation-and-editing/comfyui>)## [📄️ OpenAIThis tutorial is a community contribution and is not supported by the Open WebUI team. It serves only as a demonstration on how to customize Open WebUI for your specific use case. Want to contribute? Check out the contributing tutorial.](</features/image-generation-and-editing/openai>)## [📄️ Image RouterThis tutorial is a community contribution and is not supported by the Open WebUI team. It serves only as a demonstration on how to customize Open WebUI for your specific use case. Want to contribute? Check out the contributing tutorial.](</features/image-generation-and-editing/image-router>)## [📄️ GeminiThis tutorial is a community contribution and is not supported by the Open WebUI team. It serves only as a demonstration on how to customize Open WebUI for your specific use case. Want to contribute? Check out the contributing tutorial.](</features/image-generation-and-editing/gemini>)## [📄️ UsageBefore you can use image generation, you must ensure that the Image Generation toggle is enabled in the Admin Panel > Settings > Images menu.](</features/image-generation-and-editing/usage>)
